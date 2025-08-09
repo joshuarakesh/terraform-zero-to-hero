@@ -1,14 +1,14 @@
 # Define the AWS provider configuration.
 provider "aws" {
-  region = "us-east-1"  # Replace with your desired AWS region.
+  region = "us-east-2"  # Replace with your desired AWS region.
 }
 
 variable "cidr" {
   default = "10.0.0.0/16"
 }
 
-resource "aws_key_pair" "example" {
-  key_name   = "terraform-demo-abhi"  # Replace with your desired key name
+resource "aws_key_pair" "terraformdemo" {
+  key_name   = "terraformdemo"  # Replace with your desired key name
   public_key = file("~/.ssh/id_rsa.pub")  # Replace with the path to your public key file
 }
 
@@ -19,7 +19,7 @@ resource "aws_vpc" "myvpc" {
 resource "aws_subnet" "sub1" {
   vpc_id                  = aws_vpc.myvpc.id
   cidr_block              = "10.0.0.0/24"
-  availability_zone       = "us-east-1a"
+  availability_zone       = "us-east-2a"
   map_public_ip_on_launch = true
 }
 
@@ -59,6 +59,13 @@ resource "aws_security_group" "webSg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+   ingress {
+    description = "App Port"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
@@ -73,9 +80,9 @@ resource "aws_security_group" "webSg" {
 }
 
 resource "aws_instance" "server" {
-  ami                    = "ami-0261755bbcb8c4a84"
+  ami                    = "ami-0d1b5a8c13042c939"
   instance_type          = "t2.micro"
-  key_name      = aws_key_pair.example.key_name
+  key_name      = aws_key_pair.terraformdemo.key_name
   vpc_security_group_ids = [aws_security_group.webSg.id]
   subnet_id              = aws_subnet.sub1.id
 
@@ -94,13 +101,32 @@ resource "aws_instance" "server" {
 
   provisioner "remote-exec" {
     inline = [
-      "echo 'Hello from the remote instance'",
-      "sudo apt update -y",  # Update package lists (for ubuntu)
-      "sudo apt-get install -y python3-pip",  # Example package installation
-      "cd /home/ubuntu",
-      "sudo pip3 install flask",
-      "sudo python3 app.py &",
+    "set -xe",  # Print each command before running, stop on error    
+    "echo 'Starting setup on EC2 instance...'",
+     # Update package lists
+    "sudo apt update -y",
+    # Install Python ,venv and pip
+    "sudo apt install -y python3-pip python3-venv",
+    # Create virtual environment for Flask
+    "python3 -m venv /home/ubuntu/venv",
+    # Install Flask inside the virtual environment
+    "/home/ubuntu/venv/bin/pip install flask",
+
+    # Ensure app.py is executable
+    "chmod +x /home/ubuntu/app.py",
+     # Run app from the venv’s Python
+    "nohup /home/ubuntu/venv/bin/python /home/ubuntu/app.py > /home/ubuntu/flask.log 2>&1 &",
+    # Give app time to start
+    "sleep 5",
+    # Test if app is running
+    "curl -s http://localhost:8000 || echo 'App not responding' >> /home/ubuntu/flask.log"
     ]
   }
+ tags = {
+    Name = "FlaskAppServer"
+  }
+}
+output "instance_ip" {
+  value = aws_instance.server.public_ip
 }
 
